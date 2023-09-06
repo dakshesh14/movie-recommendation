@@ -28,10 +28,10 @@ class Model:
 
         movies = movies.merge(credit, on="title")
 
-        movies.dropna(inplace=True)
-
         movies = movies[['id', 'title', 'overview', 'genres', 'keywords',
                          'vote_average', 'vote_count', 'popularity', 'release_date', 'cast', 'runtime']]
+
+        movies.columns = map(str.lower, movies.columns)
 
         movies['genres'] = movies['genres'].apply(eval)
         movies['genres'] = movies['genres'].apply(
@@ -49,9 +49,9 @@ class Model:
         movies['cast'] = movies['cast'].apply(eval)
         movies['cast'] = movies['cast'].apply(lambda x: [d['name'] for d in x])
 
-        movies['overview'] = movies['overview'].apply(lambda x: x.split())
+        movies.dropna(inplace=True)
 
-        movies['title_lower'] = movies['title'].apply(lambda x: x.lower())
+        movies['overview'] = movies['overview'].apply(lambda x: x.split())
 
         # converting list to string
         movies['genres'] = movies['genres'].apply(lambda x: ' '.join(x))
@@ -64,6 +64,7 @@ class Model:
             movies['title'] + movies['release_date'].apply(
                 lambda x: str(x.year) + " " + str(x.month) + " " + str(x.day)
         )
+        movies['title_lower'] = movies['title'].apply(lambda x: x.lower())
 
         C = movies['vote_average'].mean()
         m = movies['vote_count'].quantile(0.9)
@@ -75,10 +76,8 @@ class Model:
         return movies
 
     def train(self):
-        movies = self.preprocess_data()
-        tfv = TfidfVectorizer(min_df=3, max_features=None,
-                              strip_accents='unicode', analyzer='word', token_pattern=r'\w{1,}',
-                              ngram_range=(1, 3), stop_words='english')
+        movies = self.movies
+        tfv = TfidfVectorizer(max_features=5000, stop_words='english')
         tfv_matrix = tfv.fit_transform(movies['combined'])
 
         sig = sigmoid_kernel(tfv_matrix, tfv_matrix)
@@ -92,21 +91,24 @@ class Model:
         movies = self.movies
         sig = self.sig
 
-        index = movies[movies['title_lower'] == title.lower()]
+        index = movies[movies['title_lower'] == title.lower()].index[0]
 
-        if len(index) == 0:
-            return []
+        if index < 0:
+            return {
+                'detail': {},
+                'recommendations': []
+            }
 
-        index = index.index[0]
         sig_scores = list(enumerate(sig[index]))
         sig_scores = sorted(sig_scores, key=lambda x: x[1], reverse=True)
-        sig_scores = sig_scores[1:x]
+        sig_scores = sig_scores[1:11]
         movie_index = [i[0] for i in sig_scores]
-        return movies[
-            ['id', 'title', 'vote_count', 'vote_average',
-                'release_date', 'genres', 'overview', 'runtime',
-             ]
-        ].iloc[movie_index].to_dict('records')
+        return {
+            'detail': movies.iloc[index].to_dict(),
+            'recommendations': movies[
+                    ['title', 'vote_count', 'vote_average', 'release_date', 'genres',]
+                ].iloc[movie_index].to_dict('records')
+        }
 
     def get_top_x_movies(self, x=10):
         movies = self.movies
